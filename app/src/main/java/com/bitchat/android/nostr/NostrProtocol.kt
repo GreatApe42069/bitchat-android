@@ -73,14 +73,24 @@ object NostrProtocol {
                 }
             
             Log.v(TAG, "Successfully unwrapped gift wrap from: ${seal.pubkey.take(16)}...")
-            
+
+            if (seal.kind != NostrKind.SEAL || !seal.isValidSignature()) {
+                Log.w(TAG, "❌ Invalid NIP-17 seal signature")
+                return null
+            }
+
             // 2. Open the seal
             val rumor = openSeal(seal, recipientIdentity.privateKeyHex)
                 ?: run {
                     Log.w(TAG, "❌ Failed to open seal")
                     return null
                 }
-            
+
+            if (seal.pubkey != rumor.pubkey) {
+                Log.w(TAG, "❌ NIP-17 seal pubkey does not match rumor pubkey")
+                return null
+            }
+
             Log.v(TAG, "Successfully opened seal")
             
             Triple(rumor.content, rumor.pubkey, rumor.createdAt)
@@ -115,6 +125,28 @@ object NostrProtocol {
             content = content
         )
         
+        return@withContext senderIdentity.signEvent(event)
+    }
+
+    /**
+     * Create a geohash-scoped presence event (kind 20001)
+     * Has no content and no nickname, used for participant counting
+     */
+    suspend fun createGeohashPresenceEvent(
+        geohash: String,
+        senderIdentity: NostrIdentity
+    ): NostrEvent = withContext(Dispatchers.Default) {
+        val tags = mutableListOf<List<String>>()
+        tags.add(listOf("g", geohash))
+
+        val event = NostrEvent(
+            pubkey = senderIdentity.publicKeyHex,
+            createdAt = (System.currentTimeMillis() / 1000).toInt(),
+            kind = NostrKind.GEOHASH_PRESENCE,
+            tags = tags,
+            content = ""
+        )
+
         return@withContext senderIdentity.signEvent(event)
     }
     
@@ -205,7 +237,7 @@ object NostrProtocol {
             content = encrypted
         )
         
-        // Sign with the ephemeral key
+        // NIP-17 requires the seal to be signed by the sender identity key.
         return seal.sign(senderPrivateKey)
     }
     
@@ -242,8 +274,6 @@ object NostrProtocol {
         giftWrap: NostrEvent,
         recipientPrivateKey: String
     ): NostrEvent? {
-        Log.d(TAG, "Unwrapping gift wrap; content prefix='${giftWrap.content.take(3)}' length=${giftWrap.content.length}")
-        
         return try {
             val decrypted = NostrCrypto.decryptNIP44(
                 ciphertext = giftWrap.content,

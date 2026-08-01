@@ -3,8 +3,12 @@ package com.bitchat.android.ui.debug
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import java.util.Date
 import java.util.concurrent.ConcurrentLinkedQueue
+import com.bitchat.android.protocol.BitchatPacket
+import com.bitchat.android.util.toHexString
 
 /**
  * Debug settings manager for controlling debug features and collecting debug data
@@ -36,6 +40,22 @@ class DebugSettingsManager private constructor() {
     private val _packetRelayEnabled = MutableStateFlow(true)
     val packetRelayEnabled: StateFlow<Boolean> = _packetRelayEnabled.asStateFlow()
 
+    // Master transport toggles
+    private val _bleEnabled = MutableStateFlow(true)
+    val bleEnabled: StateFlow<Boolean> = _bleEnabled.asStateFlow()
+
+    private val _wifiAwareEnabled = MutableStateFlow(false)
+    val wifiAwareEnabled: StateFlow<Boolean> = _wifiAwareEnabled.asStateFlow()
+
+    // Master transport toggles
+    private val _wifiAwareVerbose = MutableStateFlow(false)
+    val wifiAwareVerbose: StateFlow<Boolean> = _wifiAwareVerbose.asStateFlow()
+
+    // Visibility of the debug sheet; gates heavy work
+    private val _debugSheetVisible = MutableStateFlow(false)
+    val debugSheetVisible: StateFlow<Boolean> = _debugSheetVisible.asStateFlow()
+    fun setDebugSheetVisible(visible: Boolean) { _debugSheetVisible.value = visible }
+
     // Connection limit overrides (debug)
     private val _maxConnectionsOverall = MutableStateFlow(8)
     val maxConnectionsOverall: StateFlow<Int> = _maxConnectionsOverall.asStateFlow()
@@ -54,6 +74,10 @@ class DebugSettingsManager private constructor() {
             _maxConnectionsOverall.value = DebugPreferenceManager.getMaxConnectionsOverall(8)
             _maxServerConnections.value = DebugPreferenceManager.getMaxConnectionsServer(8)
             _maxClientConnections.value = DebugPreferenceManager.getMaxConnectionsClient(8)
+            // Transport toggles
+            _bleEnabled.value = DebugPreferenceManager.getBleEnabled(true)
+            _wifiAwareEnabled.value = DebugPreferenceManager.getWifiAwareEnabled(false)
+            _wifiAwareVerbose.value = DebugPreferenceManager.getWifiAwareVerbose(false)
         } catch (_: Exception) {
             // Preferences not ready yet; keep defaults. They will be applied on first change.
         }
@@ -75,12 +99,63 @@ class DebugSettingsManager private constructor() {
 
     // Timestamps to compute rolling window stats
     private val relayTimestamps = ConcurrentLinkedQueue<Long>()
+    // Per-device and per-peer rolling timestamps for stacked graphs
+    private val perDeviceRelayTimestamps = mutableMapOf<String, ConcurrentLinkedQueue<Long>>()
+    private val perPeerRelayTimestamps = mutableMapOf<String, ConcurrentLinkedQueue<Long>>()
+
+    // Additional buckets to split incoming vs outgoing
+    private val incomingTimestamps = ConcurrentLinkedQueue<Long>()
+    private val outgoingTimestamps = ConcurrentLinkedQueue<Long>()
+    private val perDeviceIncoming = mutableMapOf<String, ConcurrentLinkedQueue<Long>>()
+    private val perDeviceOutgoing = mutableMapOf<String, ConcurrentLinkedQueue<Long>>()
+    private val perPeerIncoming = mutableMapOf<String, ConcurrentLinkedQueue<Long>>()
+    private val perPeerOutgoing = mutableMapOf<String, ConcurrentLinkedQueue<Long>>()
+
+    // Expose current per-second rates (updated when logging/pruning occurs)
+    private val _perDeviceLastSecond: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perDeviceLastSecond: StateFlow<Map<String, Int>> = _perDeviceLastSecond.asStateFlow()
+    private val _perPeerLastSecond: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perPeerLastSecond: StateFlow<Map<String, Int>> = _perPeerLastSecond.asStateFlow()
+    // New flows used by UI for incoming/outgoing stacked plots
+    private val _perDeviceIncomingLastSecond: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perDeviceIncomingLastSecond: StateFlow<Map<String, Int>> = _perDeviceIncomingLastSecond.asStateFlow()
+    private val _perDeviceOutgoingLastSecond: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perDeviceOutgoingLastSecond: StateFlow<Map<String, Int>> = _perDeviceOutgoingLastSecond.asStateFlow()
+    private val _perPeerIncomingLastSecond: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perPeerIncomingLastSecond: StateFlow<Map<String, Int>> = _perPeerIncomingLastSecond.asStateFlow()
+    private val _perPeerOutgoingLastSecond: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perPeerOutgoingLastSecond: StateFlow<Map<String, Int>> = _perPeerOutgoingLastSecond.asStateFlow()
+
+    // Per-minute counts per key
+    private val _perDeviceIncomingLastMinute: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perDeviceIncomingLastMinute: StateFlow<Map<String, Int>> = _perDeviceIncomingLastMinute.asStateFlow()
+    private val _perDeviceOutgoingLastMinute: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perDeviceOutgoingLastMinute: StateFlow<Map<String, Int>> = _perDeviceOutgoingLastMinute.asStateFlow()
+    private val _perPeerIncomingLastMinute: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perPeerIncomingLastMinute: StateFlow<Map<String, Int>> = _perPeerIncomingLastMinute.asStateFlow()
+    private val _perPeerOutgoingLastMinute: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
+    val perPeerOutgoingLastMinute: StateFlow<Map<String, Int>> = _perPeerOutgoingLastMinute.asStateFlow()
+
+    // Totals per key (since app start)
+    private val deviceIncomingTotalsMap = mutableMapOf<String, Long>()
+    private val deviceOutgoingTotalsMap = mutableMapOf<String, Long>()
+    private val peerIncomingTotalsMap = mutableMapOf<String, Long>()
+    private val peerOutgoingTotalsMap = mutableMapOf<String, Long>()
+    private val _perDeviceIncomingTotalsFlow: MutableStateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
+    val perDeviceIncomingTotal: StateFlow<Map<String, Long>> = _perDeviceIncomingTotalsFlow.asStateFlow()
+    private val _perDeviceOutgoingTotalsFlow: MutableStateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
+    val perDeviceOutgoingTotal: StateFlow<Map<String, Long>> = _perDeviceOutgoingTotalsFlow.asStateFlow()
+    private val _perPeerIncomingTotalsFlow: MutableStateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
+    val perPeerIncomingTotal: StateFlow<Map<String, Long>> = _perPeerIncomingTotalsFlow.asStateFlow()
+    private val _perPeerOutgoingTotalsFlow: MutableStateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
+    val perPeerOutgoingTotal: StateFlow<Map<String, Long>> = _perPeerOutgoingTotalsFlow.asStateFlow()
     
     // Internal data storage for managing debug data
     private val debugMessageQueue = ConcurrentLinkedQueue<DebugMessage>()
     private val scanResultsQueue = ConcurrentLinkedQueue<DebugScanResult>()
     
     private fun updateRelayStatsFromTimestamps() {
+        if (!_debugSheetVisible.value) return
         val now = System.currentTimeMillis()
         // prune older than 15m
         while (true) {
@@ -89,18 +164,84 @@ class DebugSettingsManager private constructor() {
                 relayTimestamps.poll()
             } else break
         }
+        // prune per-device and per-peer and compute 1s/60s rates
+        fun pruneAndCount1s(map: MutableMap<String, ConcurrentLinkedQueue<Long>>): Map<String, Int> {
+            val result = mutableMapOf<String, Int>()
+            val iterator = map.entries.iterator()
+            while (iterator.hasNext()) {
+                val (key, q) = iterator.next()
+                // prune this queue
+                while (true) {
+                    val ts = q.peek() ?: break
+                    if (now - ts > 15 * 60 * 1000L) {
+                        q.poll()
+                    } else break
+                }
+                // count last 1s only
+                val count1s = q.count { now - it <= 1_000L }
+                if (q.isEmpty()) {
+                    // cleanup empty queues to prevent unbounded growth
+                    iterator.remove()
+                }
+                if (count1s > 0) result[key] = count1s
+            }
+            return result
+        }
+        fun pruneAndCount60s(map: MutableMap<String, ConcurrentLinkedQueue<Long>>): Map<String, Int> {
+            val result = mutableMapOf<String, Int>()
+            map.forEach { (key, q) ->
+                val count60 = q.count { now - it <= 60_000L }
+                if (count60 > 0) result[key] = count60
+            }
+            return result
+        }
+
+        val perDevice1s = pruneAndCount1s(perDeviceRelayTimestamps)
+        val perPeer1s = pruneAndCount1s(perPeerRelayTimestamps)
+
+        _perDeviceLastSecond.value = perDevice1s
+        _perPeerLastSecond.value = perPeer1s
+        // Also compute incoming/outgoing per-key rates
+        _perDeviceIncomingLastSecond.value = pruneAndCount1s(perDeviceIncoming)
+        _perDeviceOutgoingLastSecond.value = pruneAndCount1s(perDeviceOutgoing)
+        _perPeerIncomingLastSecond.value = pruneAndCount1s(perPeerIncoming)
+        _perPeerOutgoingLastSecond.value = pruneAndCount1s(perPeerOutgoing)
+        _perDeviceIncomingLastMinute.value = pruneAndCount60s(perDeviceIncoming)
+        _perDeviceOutgoingLastMinute.value = pruneAndCount60s(perDeviceOutgoing)
+        _perPeerIncomingLastMinute.value = pruneAndCount60s(perPeerIncoming)
+        _perPeerOutgoingLastMinute.value = pruneAndCount60s(perPeerOutgoing)
         val last1s = relayTimestamps.count { now - it <= 1_000L }
         val last10s = relayTimestamps.count { now - it <= 10_000L }
         val last1m = relayTimestamps.count { now - it <= 60_000L }
         val last15m = relayTimestamps.size
-        val total = _relayStats.value.totalRelaysCount + 1
+        // And incoming/outgoing per-second counters
+        val last1sIncoming = incomingTimestamps.count { now - it <= 1_000L }
+        val last1sOutgoing = outgoingTimestamps.count { now - it <= 1_000L }
+        val last10sIncoming = incomingTimestamps.count { now - it <= 10_000L }
+        val last10sOutgoing = outgoingTimestamps.count { now - it <= 10_000L }
+        val last1mIncoming = incomingTimestamps.count { now - it <= 60_000L }
+        val last1mOutgoing = outgoingTimestamps.count { now - it <= 60_000L }
+        val last15mIncoming = incomingTimestamps.size
+        val last15mOutgoing = outgoingTimestamps.size
+        val totalIncoming = _relayStats.value.totalIncomingCount
+        val totalOutgoing = _relayStats.value.totalOutgoingCount
         _relayStats.value = PacketRelayStats(
-            totalRelaysCount = total,
+            totalRelaysCount = totalIncoming + totalOutgoing,
             lastSecondRelays = last1s,
             last10SecondRelays = last10s,
             lastMinuteRelays = last1m,
             last15MinuteRelays = last15m,
-            lastResetTime = _relayStats.value.lastResetTime
+            lastResetTime = _relayStats.value.lastResetTime,
+            lastSecondIncoming = last1sIncoming,
+            lastSecondOutgoing = last1sOutgoing,
+            last10SecondIncoming = last10sIncoming,
+            last10SecondOutgoing = last10sOutgoing,
+            lastMinuteIncoming = last1mIncoming,
+            lastMinuteOutgoing = last1mOutgoing,
+            last15MinuteIncoming = last15mIncoming,
+            last15MinuteOutgoing = last15mOutgoing,
+            totalIncomingCount = totalIncoming,
+            totalOutgoingCount = totalOutgoing
         )
     }
     
@@ -138,6 +279,30 @@ class DebugSettingsManager private constructor() {
         addDebugMessage(DebugMessage.SystemMessage(
             if (enabled) "📡 Packet relay enabled" else "🚫 Packet relay disabled"
         ))
+    }
+
+    fun setBleEnabled(enabled: Boolean) {
+        DebugPreferenceManager.setBleEnabled(enabled)
+        _bleEnabled.value = enabled
+        addDebugMessage(DebugMessage.SystemMessage(if (enabled) "🟢 BLE enabled" else "🔴 BLE disabled"))
+        try {
+            com.bitchat.android.service.MeshServiceHolder.meshService?.setBleTransportEnabled(enabled)
+        } catch (_: Exception) { }
+    }
+
+    fun setWifiAwareEnabled(enabled: Boolean) {
+        DebugPreferenceManager.setWifiAwareEnabled(enabled)
+        _wifiAwareEnabled.value = enabled
+        addDebugMessage(DebugMessage.SystemMessage(if (enabled) "🟢 Wi‑Fi Aware enabled" else "🔴 Wi‑Fi Aware disabled"))
+        try {
+            com.bitchat.android.wifiaware.WifiAwareController.setEnabled(enabled)
+        } catch (_: Exception) { }
+    }
+
+    fun setWifiAwareVerbose(enabled: Boolean) {
+        DebugPreferenceManager.setWifiAwareVerbose(enabled)
+        _wifiAwareVerbose.value = enabled
+        addDebugMessage(DebugMessage.SystemMessage(if (enabled) "🔊 Wi‑Fi Aware verbose logging enabled" else "🔇 Wi‑Fi Aware verbose logging disabled"))
     }
 
     fun setMaxConnectionsOverall(value: Int) {
@@ -197,6 +362,16 @@ class DebugSettingsManager private constructor() {
     fun updateConnectedDevices(devices: List<ConnectedDevice>) {
         _connectedDevices.value = devices
     }
+
+    // Wi‑Fi Aware debug collections
+    private val _wifiAwareDiscovered = MutableStateFlow<Map<String, String>>(emptyMap()) // peerID->nickname
+    val wifiAwareDiscovered: StateFlow<Map<String, String>> = _wifiAwareDiscovered.asStateFlow()
+
+    private val _wifiAwareConnected = MutableStateFlow<Map<String, String>>(emptyMap()) // peerID->ip
+    val wifiAwareConnected: StateFlow<Map<String, String>> = _wifiAwareConnected.asStateFlow()
+
+    fun updateWifiAwareDiscovered(map: Map<String, String>) { _wifiAwareDiscovered.value = map }
+    fun updateWifiAwareConnected(map: Map<String, String>) { _wifiAwareConnected.value = map }
     
     fun updateRelayStats(stats: PacketRelayStats) {
         _relayStats.value = stats
@@ -296,7 +471,9 @@ class DebugSettingsManager private constructor() {
         toNickname: String?,
         toDeviceAddress: String?,
         ttl: UByte?,
-        isRelay: Boolean = true
+        isRelay: Boolean = true,
+        packetVersion: UByte = 1u,
+        routeInfo: String? = null
     ) {
         // Build message only if verbose logging is enabled, but always update stats
         val senderLabel = when {
@@ -319,28 +496,121 @@ class DebugSettingsManager private constructor() {
         val fromAddr = fromDeviceAddress ?: "?"
         val toAddr = toDeviceAddress ?: "?"
         val ttlStr = ttl?.toString() ?: "?"
+        val routeStr = if (routeInfo != null) " $routeInfo" else ""
 
         if (verboseLoggingEnabled.value) {
             if (isRelay) {
+                // Relay: show [previousPeer] -> [nextPeer]
                 addDebugMessage(
                     DebugMessage.RelayEvent(
-                        "♻️ Relayed $packetType by $senderLabel from $fromName (${fromPeerID ?: "?"}, $fromAddr) to $toName (${toPeerID ?: "?"}, $toAddr) with TTL $ttlStr"
+                        "♻️ Relayed v$packetVersion $packetType by $senderLabel from $fromName (${fromPeerID ?: "?"}, $fromAddr) to $toName (${toPeerID ?: "?"}, $toAddr) with TTL $ttlStr$routeStr"
                     )
                 )
             } else {
                 addDebugMessage(
                     DebugMessage.PacketEvent(
-                        "📤 Sent $packetType by $senderLabel to $toName (${toPeerID ?: "?"}, $toAddr) with TTL $ttlStr"
+                        "📤 Sent v$packetVersion $packetType by $senderLabel to $toName (${toPeerID ?: "?"}, $toAddr) with TTL $ttlStr$routeStr"
                     )
                 )
             }
         }
 
-        // Update rolling statistics only for relays
-        if (isRelay) {
-            relayTimestamps.offer(System.currentTimeMillis())
-            updateRelayStatsFromTimestamps()
+        // Do not update counters here; this path is for readable logs only.
+    }
+
+    // MARK: - Debug Events for Animation
+    sealed class MeshVisualEvent {
+        data class PacketActivity(val peerID: String) : MeshVisualEvent()
+        data class RouteActivity(val route: List<String>) : MeshVisualEvent()
+    }
+
+    private val _meshVisualEvents = kotlinx.coroutines.flow.MutableSharedFlow<MeshVisualEvent>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+    val meshVisualEvents: kotlinx.coroutines.flow.SharedFlow<MeshVisualEvent> = _meshVisualEvents.asSharedFlow()
+
+    fun emitVisualEvent(event: MeshVisualEvent) {
+        if (_debugSheetVisible.value) {
+            _meshVisualEvents.tryEmit(event)
         }
+    }
+
+    // Peer nickname resolver
+    private var nicknameResolver: ((String) -> String?)? = null
+    fun setNicknameResolver(resolver: (String) -> String?) { nicknameResolver = resolver }
+    
+    // Explicit incoming/outgoing logging to avoid double counting
+    fun logIncoming(packet: BitchatPacket, fromPeerID: String, fromNickname: String?, fromDeviceAddress: String?, myPeerID: String) {
+        val packetType = packet.type.toString()
+        val packetVersion = packet.version
+        val route = packet.route
+        val routeInfo = if (!route.isNullOrEmpty()) "routed: ${route.size} hops" else null
+
+        if (verboseLoggingEnabled.value) {
+            val resolvedNick = fromNickname ?: nicknameResolver?.invoke(fromPeerID) ?: "unknown"
+            val who = if (resolvedNick != "unknown") "$resolvedNick ($fromPeerID)" else fromPeerID
+            val routeStr = if (routeInfo != null) " $routeInfo" else ""
+            addDebugMessage(DebugMessage.PacketEvent("📥 Incoming v$packetVersion $packetType from $who (${fromDeviceAddress ?: "?"})$routeStr"))
+        }
+
+        emitVisualEvent(MeshVisualEvent.PacketActivity(fromPeerID))
+        
+        if (!route.isNullOrEmpty()) {
+            val fullRoute = mutableListOf<String>()
+            fullRoute.add(packet.senderID.toHexString())
+            route.forEach { fullRoute.add(it.toHexString()) }
+            packet.recipientID?.let { fullRoute.add(it.toHexString()) }
+            emitVisualEvent(MeshVisualEvent.RouteActivity(fullRoute))
+        }
+
+        val now = System.currentTimeMillis()
+        val visible = _debugSheetVisible.value
+        if (visible) incomingTimestamps.offer(now)
+        fromDeviceAddress?.let {
+            perDeviceIncoming.getOrPut(it) { ConcurrentLinkedQueue() }.offer(now)
+            deviceIncomingTotalsMap[it] = (deviceIncomingTotalsMap[it] ?: 0L) + 1L
+            _perDeviceIncomingTotalsFlow.value = deviceIncomingTotalsMap.toMap()
+        }
+        
+        perPeerIncoming.getOrPut(fromPeerID) { ConcurrentLinkedQueue() }.offer(now)
+        peerIncomingTotalsMap[fromPeerID] = (peerIncomingTotalsMap[fromPeerID] ?: 0L) + 1L
+        _perPeerIncomingTotalsFlow.value = peerIncomingTotalsMap.toMap()
+        
+        // bump totals
+        val cur = _relayStats.value
+        _relayStats.value = cur.copy(
+            totalIncomingCount = cur.totalIncomingCount + 1,
+            totalRelaysCount = cur.totalRelaysCount + 1
+        )
+        if (visible) updateRelayStatsFromTimestamps()
+    }
+
+    fun logOutgoing(packetType: String, toPeerID: String?, toNickname: String?, toDeviceAddress: String?, previousHopPeerID: String? = null, packetVersion: UByte = 1u, routeInfo: String? = null) {
+        if (verboseLoggingEnabled.value) {
+            val who = toNickname ?: toPeerID ?: "unknown"
+            val routeStr = if (routeInfo != null) " $routeInfo" else ""
+            addDebugMessage(DebugMessage.PacketEvent("📤 Outgoing v$packetVersion $packetType to $who (${toPeerID ?: "?"}, ${toDeviceAddress ?: "?"})$routeStr"))
+        }
+        val now = System.currentTimeMillis()
+        val visible = _debugSheetVisible.value
+        if (visible) outgoingTimestamps.offer(now)
+        toDeviceAddress?.let {
+            perDeviceOutgoing.getOrPut(it) { ConcurrentLinkedQueue() }.offer(now)
+            deviceOutgoingTotalsMap[it] = (deviceOutgoingTotalsMap[it] ?: 0L) + 1L
+            _perDeviceOutgoingTotalsFlow.value = deviceOutgoingTotalsMap.toMap()
+        }
+        (toPeerID ?: previousHopPeerID)?.let {
+            perPeerOutgoing.getOrPut(it) { ConcurrentLinkedQueue() }.offer(now)
+            peerOutgoingTotalsMap[it] = (peerOutgoingTotalsMap[it] ?: 0L) + 1L
+            _perPeerOutgoingTotalsFlow.value = peerOutgoingTotalsMap.toMap()
+        }
+        val cur = _relayStats.value
+        _relayStats.value = cur.copy(
+            totalOutgoingCount = cur.totalOutgoingCount + 1,
+            totalRelaysCount = cur.totalRelaysCount + 1
+        )
+        if (visible) updateRelayStatsFromTimestamps()
     }
     
     // MARK: - Clear Data
@@ -407,5 +677,15 @@ data class PacketRelayStats(
     val last10SecondRelays: Int = 0,
     val lastMinuteRelays: Int = 0,
     val last15MinuteRelays: Int = 0,
-    val lastResetTime: Date = Date()
+    val lastResetTime: Date = Date(),
+    val lastSecondIncoming: Int = 0,
+    val lastSecondOutgoing: Int = 0,
+    val last10SecondIncoming: Int = 0,
+    val last10SecondOutgoing: Int = 0,
+    val lastMinuteIncoming: Int = 0,
+    val lastMinuteOutgoing: Int = 0,
+    val last15MinuteIncoming: Int = 0,
+    val last15MinuteOutgoing: Int = 0,
+    val totalIncomingCount: Long = 0,
+    val totalOutgoingCount: Long = 0
 )

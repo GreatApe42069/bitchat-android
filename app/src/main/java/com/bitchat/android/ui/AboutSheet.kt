@@ -1,18 +1,52 @@
 package com.bitchat.android.ui
 
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,20 +54,246 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.bitchat.android.ui.theme.BitchatFontFamily
+import com.bitchat.android.R
+import com.bitchat.android.core.ui.component.button.CloseButton
+import com.bitchat.android.core.ui.component.sheet.LocalSheetDismiss
+import com.bitchat.android.core.ui.component.sheet.BitchatBottomSheet
+import com.bitchat.android.hotspot.HotspotActivity
+import com.bitchat.android.net.ArtiTorManager
+import com.bitchat.android.net.TorMode
+import com.bitchat.android.net.TorPreferenceManager
 import com.bitchat.android.nostr.NostrProofOfWork
 import com.bitchat.android.nostr.PoWPreferenceManager
-import com.bitchat.android.ui.debug.DebugSettingsSheet
-import androidx.compose.ui.res.stringResource
-import com.bitchat.android.R
+import com.bitchat.android.ui.theme.BitchatMotion
+import com.bitchat.android.ui.theme.LocalBitchatPalette
+import com.bitchat.android.util.ShareableApkVariant
+import com.bitchat.android.util.UniversalApkManager
+
 /**
- * About Sheet for bitchat app information
- * Matches the design language of LocationChannelsSheet
+ * Theme selection chip with Apple-like styling
+ */
+@Composable
+private fun ThemeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    // Cross-fade the chip so switching theme does not read as two separate flashes (the chip
+    // recolouring plus the whole app recolouring underneath it).
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) colorScheme.primary else colorScheme.surfaceVariant,
+        animationSpec = tween(BitchatMotion.STANDARD_MS, easing = FastOutSlowInEasing),
+        label = "themeChipContainer"
+    )
+    val labelColor by animateColorAsState(
+        targetValue = if (selected) Color.White else colorScheme.onSurfaceVariant,
+        animationSpec = tween(BitchatMotion.STANDARD_MS, easing = FastOutSlowInEasing),
+        label = "themeChipLabel"
+    )
+
+    Surface(
+        modifier = modifier,
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = containerColor
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                fontFamily = BitchatFontFamily,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = labelColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun LanguageSettingsRow(
+    selectedLanguageName: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.about_app_language),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = selectedLanguageName,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(
+            imageVector = Icons.Filled.UnfoldMore,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun LanguageMenuItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        onClick = onClick,
+        trailingIcon = {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+    )
+}
+
+/**
+ * Unified settings toggle row with icon, title, subtitle, and switch
+ * Apple-like design with proper spacing
+ */
+@Composable
+private fun SettingsToggleRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+    statusIndicator: (@Composable () -> Unit)? = null
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val palette = LocalBitchatPalette.current
+    val interactionSource = remember { MutableInteractionSource() }
+
+    // Colours cross-fade so a row becoming available (Tor finishing bootstrap) eases in rather
+    // than popping.
+    val iconTint by animateColorAsState(
+        targetValue = if (enabled) colorScheme.primary else palette.textTertiary,
+        animationSpec = tween(BitchatMotion.STANDARD_MS, easing = FastOutSlowInEasing),
+        label = "settingsRowIcon"
+    )
+    val titleColor by animateColorAsState(
+        targetValue = if (enabled) colorScheme.onSurface else palette.textTertiary,
+        animationSpec = tween(BitchatMotion.STANDARD_MS, easing = FastOutSlowInEasing),
+        label = "settingsRowTitle"
+    )
+    val subtitleColor by animateColorAsState(
+        targetValue = if (enabled) colorScheme.onSurfaceVariant else palette.textTertiary,
+        animationSpec = tween(BitchatMotion.STANDARD_MS, easing = FastOutSlowInEasing),
+        label = "settingsRowSubtitle"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // The whole row toggles, not just the switch: a 14.dp-tall switch is a poor target
+            // when there is a full-width row sitting right next to it.
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled
+            ) { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(22.dp)
+        )
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = title,
+                    fontFamily = BitchatFontFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = titleColor
+                )
+                statusIndicator?.invoke()
+            }
+            Text(
+                text = subtitle,
+                fontFamily = BitchatFontFamily,
+                fontSize = 12.sp,
+                color = subtitleColor,
+                lineHeight = 17.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Switch(
+            checked = checked,
+            onCheckedChange = { if (enabled) onCheckedChange(it) },
+            enabled = enabled,
+            interactionSource = interactionSource,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = colorScheme.primary,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = colorScheme.surfaceVariant
+            )
+        )
+    }
+}
+
+/**
+ * Apple-like About/Settings Sheet with high-quality design
+ * Professional UX optimized for checkout scenarios
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,12 +313,6 @@ fun AboutSheet(
             "1.0.0" // fallback version
         }
     }
-    
-    // Bottom sheet state
-
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true
-    )
 
     val lazyListState = rememberLazyListState()
     val isScrolled by remember {
@@ -67,396 +321,814 @@ fun AboutSheet(
         }
     }
     val topBarAlpha by animateFloatAsState(
-        targetValue = if (isScrolled) 0.95f else 0f,
+        targetValue = if (isScrolled) 0.98f else 0f,
+        animationSpec = tween(BitchatMotion.EMPHASIZED_MS, easing = FastOutSlowInEasing),
         label = "topBarAlpha"
     )
 
-    // Color scheme matching LocationChannelsSheet
     val colorScheme = MaterialTheme.colorScheme
-    val isDark = colorScheme.background.red + colorScheme.background.green + colorScheme.background.blue < 1.5f
-    
+    val palette = LocalBitchatPalette.current
+    var selectedTab by remember { mutableStateOf(AboutTab.Info) }
+    val supportedLanguages = remember(context) {
+        LanguagePreferenceManager.supportedLanguages(context)
+    }
+    var selectedLanguageTag by remember {
+        mutableStateOf(LanguagePreferenceManager.currentLanguageTag())
+    }
+    var showLanguagePicker by remember { mutableStateOf(false) }
+
     if (isPresented) {
-        ModalBottomSheet(
-            modifier = modifier.statusBarsPadding(),
+        BitchatBottomSheet(
+            modifier = modifier,
             onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.background,
-            dragHandle = null
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 LazyColumn(
                     state = lazyListState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 80.dp, bottom = 20.dp)
+                    contentPadding = PaddingValues(top = 72.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
-                    // Header Section
-                    item(key = "header") {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp)
-                                .padding(bottom = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.Bottom
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.app_name),
-                                    style = TextStyle(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 32.sp
-                                    ),
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
+                    // Header Section - App Identity
+                    item(key = "hero") {
+                        AboutHero(versionName = versionName ?: "")
+                    }
 
+                    item(key = "tabs") {
+                        AboutTabBar(
+                            selected = selectedTab,
+                            onSelect = { selectedTab = it },
+                            modifier = Modifier.padding(top = 24.dp)
+                        )
+                    }
+
+                    if (selectedTab == AboutTab.Info) {
+                        // What the app is, then how to drive it. Both are reference material a
+                        // new user reads once, so they belong on the same tab.
+                        item(key = "features") {
+                            Column {
+                                AboutSectionLabel(text = stringResource(R.string.about_section_about))
+                                AboutFeatureCard()
+                            }
+                        }
+
+                        item(key = "how_to_use") {
+                            AboutHowToUseSection()
+                        }
+                    }
+
+                    if (selectedTab == AboutTab.Settings) {
+                    // Appearance Section
+                    item(key = "appearance") {
+                        Column {
+                            AboutSectionLabel(text = stringResource(R.string.about_section_theme))
+                            val themePref by com.bitchat.android.ui.theme.ThemePreferenceManager.themeFlow.collectAsState()
+                            val chatUiMode by com.bitchat.android.ui.theme.ChatUiModeManager.modeFlow.collectAsState()
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = AboutHorizontalPadding),
+                                color = colorScheme.surface,
+                                shape = AboutCardShape
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        ThemeChip(
+                                            label = stringResource(R.string.about_system),
+                                            selected = themePref.isSystem,
+                                            onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.System) },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        ThemeChip(
+                                            label = stringResource(R.string.about_light),
+                                            selected = themePref.isLight,
+                                            onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.Light) },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        ThemeChip(
+                                            label = stringResource(R.string.about_dark),
+                                            selected = themePref.isDark,
+                                            onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.Dark) },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        ThemeChip(
+                                            label = stringResource(R.string.chat_ui_bubbles),
+                                            selected = chatUiMode.isBubbles,
+                                            onClick = { com.bitchat.android.ui.theme.ChatUiModeManager.set(context, com.bitchat.android.ui.theme.ChatUiMode.Bubbles) },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        ThemeChip(
+                                            label = stringResource(R.string.chat_ui_matrix),
+                                            selected = chatUiMode.isMatrix,
+                                            onClick = { com.bitchat.android.ui.theme.ChatUiModeManager.set(context, com.bitchat.android.ui.theme.ChatUiMode.Matrix) },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item(key = "language") {
+                        val selectedLanguageName = supportedLanguages
+                            .firstOrNull { it.languageTag == selectedLanguageTag }
+                            ?.endonym
+                            ?: stringResource(R.string.about_system_default)
+
+                        Column {
+                            AboutSectionLabel(text = stringResource(R.string.about_language))
+                            BoxWithConstraints(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = AboutHorizontalPadding),
+                            ) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = colorScheme.surface,
+                                    shape = AboutCardShape,
+                                ) {
+                                    LanguageSettingsRow(
+                                        selectedLanguageName = selectedLanguageName,
+                                        onClick = { showLanguagePicker = true },
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showLanguagePicker,
+                                    onDismissRequest = { showLanguagePicker = false },
+                                    modifier = Modifier.width(maxWidth),
+                                ) {
+                                    LanguageMenuItem(
+                                        label = stringResource(R.string.about_system_default),
+                                        selected = selectedLanguageTag.isEmpty(),
+                                        onClick = {
+                                            showLanguagePicker = false
+                                            if (selectedLanguageTag.isNotEmpty()) {
+                                                selectedLanguageTag = ""
+                                                LanguagePreferenceManager.setLanguage("")
+                                            }
+                                        },
+                                    )
+                                    HorizontalDivider()
+                                    supportedLanguages.forEach { language ->
+                                        LanguageMenuItem(
+                                            label = language.endonym,
+                                            selected = selectedLanguageTag == language.languageTag,
+                                            onClick = {
+                                                showLanguagePicker = false
+                                                if (language.languageTag != selectedLanguageTag) {
+                                                    selectedLanguageTag = language.languageTag
+                                                    LanguagePreferenceManager.setLanguage(language.languageTag)
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Settings Section - Unified Card with Toggles
+                    item(key = "settings") {
+                        LaunchedEffect(Unit) { PoWPreferenceManager.init(context) }
+                        val powEnabled by PoWPreferenceManager.powEnabled.collectAsState()
+                        val powDifficulty by PoWPreferenceManager.powDifficulty.collectAsState()
+                        var backgroundEnabled by remember { mutableStateOf(com.bitchat.android.service.MeshServicePreferences.isBackgroundEnabled(true)) }
+                        var liveVoiceEnabled by remember {
+                            mutableStateOf(com.bitchat.android.features.voice.LiveVoicePreferences.isEnabled(context))
+                        }
+                        val torMode = remember { mutableStateOf(TorPreferenceManager.get(context)) }
+                        val torProvider = remember { ArtiTorManager.getInstance() }
+                        val torStatus by torProvider.statusFlow.collectAsState()
+                        val torAvailable = remember { torProvider.isTorAvailable() }
+
+                        Column {
+                            AboutSectionLabel(text = stringResource(R.string.about_section_settings))
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = AboutHorizontalPadding),
+                                color = colorScheme.surface,
+                                shape = AboutCardShape
+                            ) {
+                                Column {
+                                    // Background Mode Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Bluetooth,
+                                        title = stringResource(R.string.about_background_title),
+                                        subtitle = stringResource(R.string.about_background_desc),
+                                        checked = backgroundEnabled,
+                                        onCheckedChange = { enabled ->
+                                            backgroundEnabled = enabled
+                                            com.bitchat.android.service.MeshServicePreferences.setBackgroundEnabled(enabled)
+                                            if (!enabled) {
+                                                com.bitchat.android.service.MeshForegroundService.stop(context)
+                                            } else {
+                                                com.bitchat.android.service.MeshForegroundService.start(context)
+                                            }
+                                        }
+                                    )
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 54.dp),
+                                        thickness = 1.dp,
+                                        color = colorScheme.outlineVariant
+                                    )
+
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Mic,
+                                        title = "Live push-to-talk",
+                                        subtitle = "Play voice bursts live on the mesh; voice notes are always sent on release",
+                                        checked = liveVoiceEnabled,
+                                        onCheckedChange = { enabled ->
+                                            liveVoiceEnabled = enabled
+                                            com.bitchat.android.features.voice.LiveVoicePreferences.setEnabled(context, enabled)
+                                        }
+                                    )
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 54.dp),
+                                        thickness = 1.dp,
+                                        color = colorScheme.outlineVariant
+                                    )
+
+                                    // Proof of Work Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Speed,
+                                        title = stringResource(R.string.about_pow),
+                                        subtitle = stringResource(R.string.about_pow_tip),
+                                        checked = powEnabled,
+                                        onCheckedChange = { PoWPreferenceManager.setPowEnabled(it) }
+                                    )
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 54.dp),
+                                        thickness = 1.dp,
+                                        color = colorScheme.outlineVariant
+                                    )
+
+                                    // Tor Toggle
+                                    SettingsToggleRow(
+                                        icon = Icons.Filled.Security,
+                                        title = stringResource(R.string.about_tor_title),
+                                        subtitle = stringResource(R.string.about_tor_route),
+                                        checked = torMode.value == TorMode.ON,
+                                        onCheckedChange = { enabled ->
+                                            if (torAvailable) {
+                                                torMode.value = if (enabled) TorMode.ON else TorMode.OFF
+                                                TorPreferenceManager.set(context, torMode.value)
+                                            }
+                                        },
+                                        enabled = torAvailable,
+                                        statusIndicator = if (torMode.value == TorMode.ON) {
+                                            {
+                                                val statusColor = when {
+                                                    torStatus.running && torStatus.bootstrapPercent >= 100 -> colorScheme.primary
+                                                    torStatus.running -> palette.accentOrange
+                                                    else -> colorScheme.error
+                                                }
+                                                Surface(
+                                                    color = statusColor,
+                                                    shape = CircleShape,
+                                                    modifier = Modifier.size(8.dp)
+                                                ) {}
+                                            }
+                                        } else null
+                                    )
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(start = 56.dp),
+                                        color = colorScheme.outline.copy(alpha = 0.12f)
+                                    )
+
+                                    // === Prepare App for Sharing Section ===
+                                    val apkViewModel: ApkDownloadViewModel = viewModel()
+                                    val apkUiState by apkViewModel.state.collectAsStateWithLifecycle()
+                                    val apkStatus = apkUiState.apkStatus
+                                    val downloadProgress = apkUiState.downloadProgress
+
+                                    // Handle one-shot effects (navigation, toasts, share intents)
+                                    LaunchedEffect(Unit) {
+                                        apkViewModel.onEvent(ApkUiEvent.CheckStatus)
+                                        apkViewModel.effect.collect { effect ->
+                                            when (effect) {
+                                                is ApkUiEffect.NavigateToHotspot -> {
+                                                    val intent = Intent(context, HotspotActivity::class.java)
+                                                    intent.putExtra(HotspotActivity.EXTRA_APK_PATH, effect.apkPath)
+                                                    context.startActivity(intent)
+                                                }
+                                                is ApkUiEffect.ShareApk -> {
+                                                    val intent = Intent(Intent.ACTION_SEND).apply {
+                                                        type = "application/vnd.android.package-archive"
+                                                        putExtra(Intent.EXTRA_STREAM, effect.apkUri)
+                                                        clipData = android.content.ClipData.newRawUri("", effect.apkUri)
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    val chooser = Intent.createChooser(intent, effect.chooserTitle).apply {
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    context.startActivity(chooser)
+                                                }
+                                                is ApkUiEffect.ShowToast -> {
+                                                    Toast.makeText(context, effect.message, Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Prepare App for Sharing Row
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(enabled = apkStatus !is ApkPreparationStatus.Downloading) {
+                                                apkViewModel.onEvent(ApkUiEvent.PrepareRowClicked)
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = if (apkStatus is ApkPreparationStatus.Ready) {
+                                                Icons.Default.Share
+                                            } else {
+                                                Icons.Default.CloudDownload
+                                            },
+                                            contentDescription = null,
+                                            tint = colorScheme.primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.width(14.dp))
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = if (apkStatus is ApkPreparationStatus.Ready) {
+                                                    stringResource(R.string.prepare_apk_ready_title)
+                                                } else {
+                                                    stringResource(R.string.prepare_apk_title)
+                                                },
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium,
+                                                color = colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = when (val status = apkStatus) {
+                                                    is ApkPreparationStatus.Loading -> stringResource(R.string.checking)
+                                                    is ApkPreparationStatus.NotDownloaded -> stringResource(R.string.prepare_apk_status_not_downloaded)
+                                                    is ApkPreparationStatus.Ready -> {
+                                                        val source = when {
+                                                            status.source == UniversalApkManager.ApkSource.GITHUB ->
+                                                                stringResource(R.string.prepare_apk_source_github)
+                                                            status.variant == ShareableApkVariant.ARM64 ->
+                                                                stringResource(R.string.prepare_apk_source_installed_arm64)
+                                                            else ->
+                                                                stringResource(R.string.prepare_apk_source_installed)
+                                                        }
+                                                        stringResource(R.string.prepare_apk_status_ready) +
+                                                            " • ${status.version} • ${status.sizeMB} MB\n$source"
+                                                    }
+                                                    is ApkPreparationStatus.UpdateAvailable -> stringResource(R.string.prepare_apk_status_update_available) + " (${status.newVersion})"
+                                                    is ApkPreparationStatus.Downloading -> stringResource(R.string.prepare_apk_status_downloading, downloadProgress)
+                                                    is ApkPreparationStatus.Resumable -> "Tap to resume • ${status.progressPercent}% downloaded"
+                                                    is ApkPreparationStatus.Error -> status.message
+                                                },
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = when (apkStatus) {
+                                                    is ApkPreparationStatus.Error -> colorScheme.error
+                                                    is ApkPreparationStatus.Resumable -> colorScheme.primary
+                                                    is ApkPreparationStatus.UpdateAvailable -> colorScheme.primary
+                                                    else -> colorScheme.onSurface.copy(alpha = 0.6f)
+                                                },
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+
+                                        // Action buttons
+                                        when (apkStatus) {
+                                            is ApkPreparationStatus.Downloading -> {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(20.dp),
+                                                    strokeWidth = 2.dp
+                                                )
+                                            }
+                                            is ApkPreparationStatus.Ready -> {
+                                                if (apkStatus.variant == ShareableApkVariant.ARM64) {
+                                                    TextButton(
+                                                        onClick = {
+                                                            apkViewModel.onEvent(
+                                                                ApkUiEvent.DownloadUniversalClicked
+                                                            )
+                                                        }
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.CloudDownload,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text(
+                                                            stringResource(
+                                                                R.string.prepare_apk_get_universal
+                                                            )
+                                                        )
+                                                    }
+                                                } else if (apkStatus.source == UniversalApkManager.ApkSource.GITHUB) {
+                                                    androidx.compose.material3.IconButton(
+                                                        onClick = { apkViewModel.onEvent(ApkUiEvent.DeleteClicked) },
+                                                        modifier = Modifier.size(48.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = stringResource(
+                                                                R.string.prepare_apk_delete_confirm
+                                                            ),
+                                                            tint = colorScheme.error,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            is ApkPreparationStatus.UpdateAvailable -> {
+                                                androidx.compose.material3.IconButton(
+                                                    onClick = { apkViewModel.onEvent(ApkUiEvent.DeleteClicked) },
+                                                    modifier = Modifier.size(48.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = stringResource(
+                                                            R.string.prepare_apk_delete_confirm
+                                                        ),
+                                                        tint = colorScheme.error,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                            else -> {}
+                                        }
+                                    }
+
+                                    // Prepare Dialog
+                                    if (apkUiState.showPrepareDialog) {
+                                        val status = apkStatus
+                                        val sizeMB: Int? = when (status) {
+                                            is ApkPreparationStatus.NotDownloaded -> status.sizeMB
+                                            is ApkPreparationStatus.UpdateAvailable -> status.newSizeMB
+                                            else -> null
+                                        }
+                                        AlertDialog(
+                                            onDismissRequest = { apkViewModel.onEvent(ApkUiEvent.DismissPrepareDialog) },
+                                            title = {
+                                                Text(
+                                                    text = if (status is ApkPreparationStatus.UpdateAvailable) {
+                                                        stringResource(R.string.prepare_apk_update_dialog_title)
+                                                    } else {
+                                                        stringResource(R.string.prepare_apk_dialog_title)
+                                                    },
+                                                    style = MaterialTheme.typography.titleLarge
+                                                )
+                                            },
+                                            text = {
+                                                Text(
+                                                    text = if (status is ApkPreparationStatus.UpdateAvailable) {
+                                                        stringResource(R.string.prepare_apk_update_dialog_message, status.newVersion, status.currentVersion)
+                                                    } else if (sizeMB != null) {
+                                                        stringResource(R.string.prepare_apk_dialog_message, sizeMB)
+                                                    } else {
+                                                        stringResource(R.string.prepare_apk_dialog_message_unknown_size)
+                                                    },
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                            },
+                                            confirmButton = {
+                                                Button(onClick = {
+                                                    apkViewModel.onEvent(ApkUiEvent.ConfirmDownload)
+                                                }) {
+                                                    Text(stringResource(R.string.prepare_apk_dialog_confirm))
+                                                }
+                                            },
+                                            dismissButton = {
+                                                TextButton(onClick = { apkViewModel.onEvent(ApkUiEvent.DismissPrepareDialog) }) {
+                                                    Text(stringResource(R.string.cancel))
+                                                }
+                                            },
+                                            containerColor = colorScheme.surface
+                                        )
+                                    }
+
+                                    // Delete Dialog
+                                    if (apkUiState.showDeleteDialog) {
+                                        val sizeMB = (apkStatus as? ApkPreparationStatus.Ready)?.sizeMB ?: 0
+                                        AlertDialog(
+                                            onDismissRequest = { apkViewModel.onEvent(ApkUiEvent.DismissDeleteDialog) },
+                                            title = {
+                                                Text(
+                                                    text = stringResource(R.string.prepare_apk_delete_confirm),
+                                                    style = MaterialTheme.typography.titleLarge
+                                                )
+                                            },
+                                            text = {
+                                                Text(
+                                                    text = stringResource(R.string.prepare_apk_delete_message, sizeMB),
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                            },
+                                            confirmButton = {
+                                                Button(
+                                                    onClick = {
+                                                        apkViewModel.onEvent(ApkUiEvent.ConfirmDelete)
+                                                    },
+                                                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                                        containerColor = colorScheme.error
+                                                    )
+                                                ) {
+                                                    Text("Delete")
+                                                }
+                                            },
+                                            dismissButton = {
+                                                TextButton(onClick = { apkViewModel.onEvent(ApkUiEvent.DismissDeleteDialog) }) {
+                                                    Text(stringResource(R.string.cancel))
+                                                }
+                                            },
+                                            containerColor = colorScheme.surface
+                                        )
+                                    }
+
+                                    // Show sharing rows only when APK is ready
+                                    val canShareAPK = apkStatus is ApkPreparationStatus.Ready ||
+                                            apkStatus is ApkPreparationStatus.UpdateAvailable
+
+                                    AnimatedVisibility(
+                                        visible = canShareAPK,
+                                        enter = fadeIn() + expandVertically(),
+                                        exit = fadeOut() + shrinkVertically()
+                                    ) {
+                                        Column {
+                                            HorizontalDivider(
+                                                modifier = Modifier.padding(start = 56.dp),
+                                                color = colorScheme.outline.copy(alpha = 0.12f)
+                                            )
+
+                                            // === Share via Hotspot Row ===
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        apkViewModel.onEvent(ApkUiEvent.HotspotShareClicked)
+                                                    }
+                                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Wifi,
+                                            contentDescription = null,
+                                            tint = colorScheme.primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.width(14.dp))
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.hotspot_share_via),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium,
+                                                color = colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.hotspot_share_via_subtitle),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = colorScheme.onSurface.copy(alpha = 0.6f),
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+
+                                        Icon(
+                                            imageVector = Icons.Default.ChevronRight,
+                                            contentDescription = null,
+                                            tint = colorScheme.onSurface.copy(alpha = 0.4f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                            }
+
+                                            HorizontalDivider(
+                                        modifier = Modifier.padding(start = 56.dp),
+                                        color = colorScheme.outline.copy(alpha = 0.12f)
+                                    )
+
+                                    // === Share via Bluetooth/Email Row (Fallback) ===
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { apkViewModel.onEvent(ApkUiEvent.AppShareClicked) }
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Bluetooth,
+                                            contentDescription = null,
+                                            tint = colorScheme.primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.width(14.dp))
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.hotspot_share_other),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium,
+                                                color = colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.hotspot_share_other_subtitle),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = colorScheme.onSurface.copy(alpha = 0.6f),
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+
+                                        Icon(
+                                            imageVector = Icons.Default.ChevronRight,
+                                            contentDescription = null,
+                                            tint = colorScheme.onSurface.copy(alpha = 0.4f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                            // APK Share Dialog
+                                            ApkShareExplanationDialog(
+                                                show = apkUiState.showShareApkDialog,
+                                                onConfirm = {
+                                                    apkViewModel.onEvent(ApkUiEvent.ConfirmAppShare)
+                                                },
+                                                onDismiss = { apkViewModel.onEvent(ApkUiEvent.DismissShareDialog) }
+                                            )
+                                        }
+                                    }
+
+                                }
+                            }
+
+                            // Tor unavailable hint
+                            if (!torAvailable) {
                                 Text(
-                                    text = stringResource(R.string.version_prefix, versionName?:""),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = colorScheme.onBackground.copy(alpha = 0.5f),
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        baselineShift = BaselineShift(0.1f)
+                                    text = stringResource(R.string.tor_not_available_in_this_build),
+                                    fontSize = 12.sp,
+                                    fontFamily = BitchatFontFamily,
+                                    color = palette.textTertiary,
+                                    modifier = Modifier.padding(
+                                        start = AboutHorizontalPadding + 16.dp,
+                                        top = 8.dp
                                     )
                                 )
                             }
-
-                            Text(
-                                text = stringResource(R.string.about_tagline),
-                                fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                            )
                         }
                     }
 
-                    // Features section
-                    item(key = "feature_offline") {
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier
-                                .padding(horizontal = 24.dp)
-                                .padding(vertical = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Bluetooth,
-                                contentDescription = stringResource(R.string.cd_offline_mesh_chat),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(top = 2.dp)
-                                    .size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.about_offline_mesh_title),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = stringResource(R.string.about_offline_mesh_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-                                )
-                            }
-                        }
-                    }
-                    item(key = "feature_geohash") {
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier
-                                .padding(horizontal = 24.dp)
-                                .padding(vertical = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Public,
-                                contentDescription = stringResource(R.string.cd_online_geohash_channels),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(top = 2.dp)
-                                    .size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.about_online_geohash_title),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = stringResource(R.string.about_online_geohash_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-                                )
-                            }
-                        }
-                    }
-                    item(key = "feature_encryption") {
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier
-                                .padding(horizontal = 24.dp)
-                                .padding(vertical = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = stringResource(R.string.cd_end_to_end_encryption),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(top = 2.dp)
-                                    .size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.about_e2e_title),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = stringResource(R.string.about_e2e_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-                                )
-                            }
-                        }
-                    }
-
-                    // Appearance Section
-                    item(key = "appearance_section") {
-                        Text(
-                            text = stringResource(R.string.about_appearance),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                            modifier = Modifier
-                                .padding(horizontal = 24.dp)
-                                .padding(top = 24.dp, bottom = 8.dp)
-                        )
-                        val themePref by com.bitchat.android.ui.theme.ThemePreferenceManager.themeFlow.collectAsState()
-                        Row(
-                            modifier = Modifier.padding(horizontal = 24.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            FilterChip(
-                                selected = themePref.isSystem,
-                                onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.System) },
-                                label = { Text(stringResource(R.string.about_system), fontFamily = FontFamily.Monospace) }
-                            )
-                            FilterChip(
-                                selected = themePref.isLight,
-                                onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.Light) },
-                                label = { Text(stringResource(R.string.about_light), fontFamily = FontFamily.Monospace) }
-                            )
-                            FilterChip(
-                                selected = themePref.isDark,
-                                onClick = { com.bitchat.android.ui.theme.ThemePreferenceManager.set(context, com.bitchat.android.ui.theme.ThemePreference.Dark) },
-                                label = { Text(stringResource(R.string.about_dark), fontFamily = FontFamily.Monospace) }
-                            )
-                        }
-                    }
-                    // Proof of Work Section
-                    item(key = "pow_section") {
-                        Text(
-                            text = stringResource(R.string.about_pow),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                            modifier = Modifier
-                                .padding(horizontal = 24.dp)
-                                .padding(top = 24.dp, bottom = 8.dp)
-                        )
-                        LaunchedEffect(Unit) {
-                            PoWPreferenceManager.init(context)
-                        }
-
+                    // PoW Difficulty Slider (when enabled)
+                    item(key = "pow_slider") {
                         val powEnabled by PoWPreferenceManager.powEnabled.collectAsState()
                         val powDifficulty by PoWPreferenceManager.powDifficulty.collectAsState()
 
-                        Column(
-                            modifier = Modifier.padding(horizontal = 24.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                FilterChip(
-                                    selected = !powEnabled,
-                                    onClick = { PoWPreferenceManager.setPowEnabled(false) },
-                                    label = { Text(stringResource(R.string.about_pow_off), fontFamily = FontFamily.Monospace) }
-                                )
-                                FilterChip(
-                                    selected = powEnabled,
-                                    onClick = { PoWPreferenceManager.setPowEnabled(true) },
-                                    label = {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(stringResource(R.string.about_pow_on), fontFamily = FontFamily.Monospace)
-                                            // Show current difficulty
-                                            if (powEnabled) {
-                                                Surface(
-                                                    color = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D),
-                                                    shape = RoundedCornerShape(50)
-                                                ) { Box(Modifier.size(8.dp)) }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-
-                            Text(
-                                text = stringResource(R.string.about_pow_tip),
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-
-                            // Show difficulty slider when enabled
-                            if (powEnabled) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.about_pow_difficulty, powDifficulty, NostrProofOfWork.estimateMiningTime(powDifficulty)),
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                    )
-
-                                    Slider(
-                                        value = powDifficulty.toFloat(),
-                                        onValueChange = { PoWPreferenceManager.setPowDifficulty(it.toInt()) },
-                                        valueRange = 0f..32f,
-                                        steps = 33,
-                                        colors = SliderDefaults.colors(
-                                            thumbColor = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D),
-                                            activeTrackColor = if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D)
-                                        )
-                                    )
-
-                                    // Show difficulty description
-                                    Surface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                text = stringResource(R.string.about_pow_difficulty_attempts, powDifficulty, NostrProofOfWork.estimateWork(powDifficulty)),
-                                                fontSize = 10.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = colorScheme.onSurface.copy(alpha = 0.7f)
-                                            )
-                                            Text(
-                                                text = when {
-                                                    powDifficulty == 0 -> stringResource(R.string.about_pow_desc_none)
-                                                    powDifficulty <= 8 -> stringResource(R.string.about_pow_desc_very_low)
-                                                    powDifficulty <= 12 -> stringResource(R.string.about_pow_desc_low)
-                                                    powDifficulty <= 16 -> stringResource(R.string.about_pow_desc_medium)
-                                                    powDifficulty <= 20 -> stringResource(R.string.about_pow_desc_high)
-                                                    powDifficulty <= 24 -> stringResource(R.string.about_pow_desc_very_high)
-                                                    else -> stringResource(R.string.about_pow_desc_extreme)
-                                                },
-                                                fontSize = 10.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = colorScheme.onSurface.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Network (Tor) section
-                    item(key = "network_section") {
-                        val torMode = remember { mutableStateOf(com.bitchat.android.net.TorPreferenceManager.get(context)) }
-                        val torStatus by com.bitchat.android.net.TorManager.statusFlow.collectAsState()
-                        Text(
-                            text = stringResource(R.string.about_network),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                            modifier = Modifier
-                                .padding(horizontal = 24.dp)
-                                .padding(top = 24.dp, bottom = 8.dp)
-                        )
-                        Column(modifier = Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                FilterChip(
-                                    selected = torMode.value == com.bitchat.android.net.TorMode.OFF,
-                                    onClick = {
-                                        torMode.value = com.bitchat.android.net.TorMode.OFF
-                                        com.bitchat.android.net.TorPreferenceManager.set(context, torMode.value)
-                                    },
-                                    label = { Text("tor off", fontFamily = FontFamily.Monospace) }
-                                )
-                                FilterChip(
-                                    selected = torMode.value == com.bitchat.android.net.TorMode.ON,
-                                    onClick = {
-                                        torMode.value = com.bitchat.android.net.TorMode.ON
-                                        com.bitchat.android.net.TorPreferenceManager.set(context, torMode.value)
-                                    },
-                                    label = {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text("tor on", fontFamily = FontFamily.Monospace)
-                                            val statusColor = when {
-                                                torStatus.running && torStatus.bootstrapPercent < 100 -> Color(0xFFFF9500)
-                                                torStatus.running && torStatus.bootstrapPercent >= 100 -> if (isDark) Color(0xFF32D74B) else Color(0xFF248A3D)
-                                                else -> Color.Red
-                                            }
-                                            Surface(color = statusColor, shape = CircleShape) {
-                                                Box(Modifier.size(8.dp))
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                            Text(
-                                text = stringResource(R.string.about_tor_route),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                            if (torMode.value == com.bitchat.android.net.TorMode.ON) {
-                                val statusText = if (torStatus.running) "Running" else "Stopped"
-                                // Debug status (temporary)
+                        if (powEnabled) {
+                            Column(modifier = Modifier.padding(top = 12.dp)) {
                                 Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                                    shape = RoundedCornerShape(8.dp)
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = AboutHorizontalPadding),
+                                    color = colorScheme.surface,
+                                    shape = AboutCardShape
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        Text(
-                                            text = stringResource(R.string.about_tor_status, statusText, torStatus.bootstrapPercent),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = colorScheme.onSurface.copy(alpha = 0.75f)
-                                        )
-                                        val lastLog = torStatus.lastLogLine
-                                        if (lastLog.isNotEmpty()) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Text(
-                                                text = stringResource(R.string.about_last, lastLog.take(160)),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = colorScheme.onSurface.copy(alpha = 0.6f)
+                                                text = stringResource(R.string.about_difficulty),
+                                                fontFamily = BitchatFontFamily,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = colorScheme.onSurface
+                                            )
+                                            AnimatedCountLabel(
+                                                count = powDifficulty,
+                                                text = stringResource(
+                                                    R.string.about_difficulty_value,
+                                                    powDifficulty,
+                                                    NostrProofOfWork.estimateMiningTime(powDifficulty)
+                                                ),
+                                                fontFamily = BitchatFontFamily,
+                                                fontSize = 12.sp,
+                                                color = colorScheme.onSurfaceVariant
+                                            )
+                                        }
+
+                                        Slider(
+                                            value = powDifficulty.toFloat(),
+                                            onValueChange = { PoWPreferenceManager.setPowDifficulty(it.toInt()) },
+                                            valueRange = 0f..32f,
+                                            steps = 31,
+                                            colors = SliderDefaults.colors(
+                                                thumbColor = colorScheme.primary,
+                                                activeTrackColor = colorScheme.primary,
+                                                inactiveTrackColor = colorScheme.surfaceVariant
+                                            )
+                                        )
+
+                                        AnimatedCountLabel(
+                                            count = powDifficulty,
+                                            text = when {
+                                                powDifficulty == 0 -> stringResource(R.string.about_pow_desc_none)
+                                                powDifficulty <= 8 -> stringResource(R.string.about_pow_desc_very_low)
+                                                powDifficulty <= 12 -> stringResource(R.string.about_pow_desc_low)
+                                                powDifficulty <= 16 -> stringResource(R.string.about_pow_desc_medium)
+                                                powDifficulty <= 20 -> stringResource(R.string.about_pow_desc_high)
+                                                powDifficulty <= 24 -> stringResource(R.string.about_pow_desc_very_high)
+                                                else -> stringResource(R.string.about_pow_desc_extreme)
+                                            },
+                                            fontSize = 12.sp,
+                                            fontFamily = BitchatFontFamily,
+                                            color = palette.textTertiary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Tor Status (when enabled)
+                    item(key = "tor_status") {
+                        val torMode = remember { mutableStateOf(TorPreferenceManager.get(context)) }
+                        val torProvider = remember { ArtiTorManager.getInstance() }
+                        val torStatus by torProvider.statusFlow.collectAsState()
+
+                        if (torMode.value == TorMode.ON) {
+                            Column(modifier = Modifier.padding(top = 12.dp)) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = AboutHorizontalPadding),
+                                    color = colorScheme.surface,
+                                    shape = AboutCardShape
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            val statusColor = when {
+                                                torStatus.running && torStatus.bootstrapPercent >= 100 -> colorScheme.primary
+                                                torStatus.running -> palette.accentOrange
+                                                else -> colorScheme.error
+                                            }
+                                            Surface(color = statusColor, shape = CircleShape, modifier = Modifier.size(10.dp)) {}
+                                            Text(
+                                                text = if (torStatus.running) {
+                                                    stringResource(R.string.about_tor_connected, torStatus.bootstrapPercent)
+                                                } else {
+                                                    stringResource(R.string.about_tor_disconnected)
+                                                },
+                                                fontFamily = BitchatFontFamily,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = colorScheme.onSurface
+                                            )
+                                        }
+                                        if (torStatus.lastLogLine.isNotEmpty()) {
+                                            Text(
+                                                text = torStatus.lastLogLine.take(120),
+                                                fontSize = 11.sp,
+                                                fontFamily = BitchatFontFamily,
+                                                color = palette.textTertiary,
+                                                maxLines = 2
                                             )
                                         }
                                     }
@@ -465,80 +1137,38 @@ fun AboutSheet(
                         }
                     }
 
-                    // Emergency Warning Section
-                    item(key = "warning_section") {
-                        val colorScheme = MaterialTheme.colorScheme
-                        val errorColor = colorScheme.error
+                    } // end Settings tab
 
-                        Surface(
-                            modifier = Modifier
-                                .padding(horizontal = 24.dp, vertical = 24.dp)
-                                .fillMaxWidth(),
-                            color = errorColor.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Warning,
-                                    contentDescription = stringResource(R.string.cd_warning),
-                                    tint = errorColor,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.about_emergency_title),
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        color = errorColor
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.about_emergency_tip),
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = colorScheme.onSurface.copy(alpha = 0.8f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Footer Section
+                    // Footer
                     item(key = "footer") {
                         Column(
                             modifier = Modifier
-                                .padding(horizontal = 24.dp)
-                                .fillMaxWidth(),
+                                .fillMaxWidth()
+                                .padding(
+                                    start = AboutHorizontalPadding,
+                                    end = AboutHorizontalPadding,
+                                    top = 24.dp
+                                ),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            if (onShowDebug != null) {
-                                TextButton(
-                                    onClick = onShowDebug,
-                                    colors = ButtonDefaults.textButtonColors(
-                                        contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                ) {
+                            if (selectedTab == AboutTab.Settings && onShowDebug != null) {
+                                TextButton(onClick = onShowDebug) {
                                     Text(
                                         text = stringResource(R.string.about_debug_settings),
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace
+                                        fontSize = 13.sp,
+                                        fontFamily = BitchatFontFamily,
+                                        color = colorScheme.primary
                                     )
                                 }
                             }
                             Text(
                                 text = stringResource(R.string.about_footer),
                                 fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                fontFamily = BitchatFontFamily,
+                                color = palette.textTertiary
                             )
-
-                            // Add extra space at bottom for gesture area
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(20.dp))
                         }
                     }
                 }
@@ -549,20 +1179,15 @@ fun AboutSheet(
                         .align(Alignment.TopCenter)
                         .fillMaxWidth()
                         .height(64.dp)
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = topBarAlpha))
+                        .background(colorScheme.background.copy(alpha = topBarAlpha))
                 ) {
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
+                    val dismiss = LocalSheetDismiss.current
+                    CloseButton(
+                        onClick = { dismiss?.invoke() ?: onDismiss() },
+                        modifier = modifier
                             .align(Alignment.CenterEnd)
-                            .padding(horizontal = 16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.close_plain),
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
+                            .padding(horizontal = 16.dp),
+                    )
                 }
             }
         }
@@ -608,7 +1233,7 @@ fun PasswordPromptDialog(
                         onValueChange = onPasswordChange,
                         label = { Text(stringResource(R.string.pwd_label), style = MaterialTheme.typography.bodyMedium) },
                         textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = BitchatFontFamily
                         ),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colorScheme.primary,
@@ -623,6 +1248,94 @@ fun PasswordPromptDialog(
                         text = stringResource(R.string.join),
                         style = MaterialTheme.typography.bodyMedium,
                         color = colorScheme.primary
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text(
+                        text = stringResource(R.string.cancel),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colorScheme.onSurface
+                    )
+                }
+            },
+            containerColor = colorScheme.surface,
+            tonalElevation = 8.dp
+        )
+    }
+}
+
+
+/**
+ * Dialog explaining APK sharing feature before sharing
+ */
+@Composable
+private fun ApkShareExplanationDialog(
+    show: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    if (show) {
+        val colorScheme = MaterialTheme.colorScheme
+
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = null,
+                    tint = colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = stringResource(R.string.share_apk_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colorScheme.onSurface
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = stringResource(R.string.share_apk_explanation),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colorScheme.onSurface
+                    )
+
+                    // Info box with receiver instructions
+                    Surface(
+                        color = colorScheme.primaryContainer.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.share_apk_receiver_instructions),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colorScheme.onSurface.copy(alpha = 0.8f),
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = onConfirm) {
+                    Text(
+                        text = stringResource(R.string.share_apk_confirm),
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
             },

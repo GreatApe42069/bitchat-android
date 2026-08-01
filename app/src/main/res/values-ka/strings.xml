@@ -46,7 +46,7 @@
     <string name="notification_summary_more">და კიდევ %1$d</string>
     <string name="notification_messages_from_people">%2$d ადამიანიდან %1$d შეტყობინება</string>
     <string name="notification_more_conversations">და კიდევ %1$d საუბარი</string>
-    <string name="notification_active_peers_title">👥 bitchatter-ები ახლოს!</string>
+    <string name="notification_active_peers_title">bitchatter-ები ახლოს!</string>
     <string name="notification_active_peers_one">1 ადამიანი ახლოს</string>
     <string name="notification_active_peers_many">ახლოს %1$d ადამიანი</string>
     <string name="notification_new_messages">ახალი შეტყობინებები</string>
@@ -70,15 +70,11 @@
     <string name="cd_remove_favorite">რჩეულებიდან წაშლა</string>
     <string name="cd_add_bookmark">სანიშნეს დამატება</string>
 
-    <!-- ჩათის სათაური & ხელმისაწვდომობა -->
-    <string name="chat_back">უკან</string>
-    <string name="chat_channel_prefix">არხი: %1$s</string>
-    <string name="chat_leave">გასვლა</string>
+    <!-- ჩათის სათაური &amp; ხელმისაწვდომობა -->
     <string name="cd_nostr_reachable">მისაწვდომია Nostr-ით</string>
     <string name="cd_unread_private_messages">წაუკითხავი პირადი შეტყობინებები</string>
-    <string name="cd_toggle_bookmark">სანიშნეს გადართვა</string>
     <string name="cd_teleported">ტელეპორტირებული</string>
-    <string name="cd_tor_status">Tor-ის სტატუსი</string>
+    <string name="cd_open_location_channels">მდებარეობისა და არხების პარამეტრების გახსნა</string>
     <string name="cd_connected_peers">დაკავშირებული პირები</string>
     <string name="cd_geohash_participants">geohash მონაწილეები</string>
     <string name="cd_ready_for_handshake">მზადაა ხელის ჩამოსართმევად</string>
@@ -96,14 +92,12 @@
     <string name="pick_image">სურათის არჩევა</string>
 
     <!-- შიტი "შესახებ" -->
-    <string name="about_tagline">დეცენტრალიზებული mesh-ჩათი ბოლო-მდე დაშიფვრით</string>
     <string name="about_offline_mesh_title">ოფლაინ mesh-ჩათი</string>
     <string name="about_offline_mesh_desc">ესაუბრეთ პირდაპირ Bluetooth LE-ის საშუალებით ინტერნეტის ან სერვერების გარეშე. შეტყობინებები გადაიგზავნება ახლომდებარე მოწყობილობებზე, რათა გაიზარდოს დაფარვა.</string>
     <string name="about_online_geohash_title">ონლაინ geohash არხები</string>
     <string name="about_online_geohash_desc">დაუკავშირდით ახლომდებარე ხალხს geohash-ზე დაფუძნებული არხებით. გააფართოვეთ mesh საჯარო ინტერნეტ რილეებით.</string>
     <string name="about_e2e_title">ბოლო-მდე დაშიფვრა</string>
     <string name="about_e2e_desc">პირადი შეტყობინებები დაშიფრულია. არხის შეტყობინებები საჯაროა.</string>
-    <string name="about_appearance">გარეგნობა</string>
     <string name="about_system">სისტემა</string>
     <string name="about_light">ღია</string>
     <string name="about_dark">მუქი</string>
@@ -127,7 +121,6 @@
     <string name="about_tor_status">Tor სტატუსი: %1$s, ჩატვირთვა %2$d%%</string>
     <string name="about_last">ბოლო: %1$s</string>
     <string name="about_emergency_title">სასწრაფო მონაცემების წაშლა</string>
-    <string name="about_emergency_tip">რჩევა: დააჭირეთ აპის სათაურს სამჯერ ყველა შენახული მონაცემის – შეტყობინებების, გასაღებებისა და პარამეტრების – წასაშლელად.</string>
     <string name="about_debug_settings">დebug პარამეტრები</string>
     <string name="about_footer">ღია კოდი • კონფიდენციალობა პირველია • დეცენტრალიზებული</string>
     <string name="close_plain">დახურვა</string>
@@ -147,7 +140,6 @@
     <string name="cd_open_map">რუკის გახსნა</string>
     <string name="cd_remove_bookmark">სანიშნეს წაშლა</string>
     <string name="cd_teleport">ტელეპორტი</string>
-    <string name="cd_selected">მონიშნული</string>
     <string name="cd_leave_channel">არხიდან გამოსვლა</string>
     <string name="cd_reachable_via_nostr">მისაწვდომია Nostr-ით</string>
     <string name="cd_offline_favorite">რჩეული (ოფლაინ)</string>
@@ -170,7 +162,7 @@
     <string name="cd_online_geohash_channels">ონლაინ geohash არხები</string>
     <string name="cd_end_to_end_encryption">ბოლო-მდე დაშიფვრა</string>
 
-    <!-- სურათები & ფაილები -->
+    <!-- სურათები &amp; ფაილები -->
     <string name="image_page_of">სურათი %1$d %2$d-დან</string>
     <string name="image_unavailable">სურათი მიუწვდომელია</string>
     <string name="image_saved_to_downloads">სურათი შენახულია "ჩამოტვირთვებში"</string>
@@ -286,14 +278,12 @@
     <string name="permissions_header">ნებართვები</string>
     <string name="grant_permissions">ნებართვების მინიჭება</string>
     <string name="location_tracking_warning">bitchat არ აკონტროლებს თქვენს მდებარეობას</string>
-    <string name="geohash_people_header">ხალხი</string>
     <string name="nobody_around">არავინ არის ახლოს…</string>
     <string name="you_suffix"> (თქვენ)</string>
     <string name="pan_zoom_instruction">პანორამირება/ზუმი geohash-ის ასარჩევად</string>
     <string name="select">არჩევა</string>
     <string name="type_a_message_placeholder">შეიყვანეთ შეტყობინება…</string>
     <string name="mention">ხსენება</string>
-    <string name="pow_time_estimate">(~%1$s)</string>
     <string name="version_prefix">v%1$s</string>
     <string name="image_star">image/*</string>
     <string name="media_type_image">სურათი</string>
@@ -307,11 +297,6 @@
     <!-- ხმოვანი დამკვრელის ხელმისაწვდომობა -->
     <string name="cd_play_voice">დაკვრა</string>
     <string name="cd_pause_voice">პაუზა</string>
-    <string name="cd_mining_pow">PoW მაინინგი</string>
-    <string name="cd_pow_enabled">PoW ჩართულია</string>
-    <string name="cd_proof_of_work">Proof of Work</string>
-    <string name="pow_mining_ellipsis">მაინინგი…</string>
-    <string name="pow_label_format">pow: %1$dbit</string>
 
     <!-- ნებართვების აღწერები -->
     <string name="perm_nearby_devices_desc">საჭიროა bitchat მომხმარებლების Bluetooth-ით აღმოსაჩენად</string>
@@ -349,4 +334,50 @@
         <item quantity="other">%d ადამიანი</item>
     </plurals>
 
+    <string name="bluetooth_recommended">Bluetooth Recommended</string>
+    <string name="mesh_service_notification_content">Mesh გაშვებულია — %1$d პირები</string>
+
+  <string name="verify_title">verify</string>
+  <string name="verify_my_qr_title">scan to verify me</string>
+  <string name="verify_scan_prompt_friend">scan someone elses qr</string>
+  <string name="verify_scan_someone">scan someone elses qr</string>
+  <string name="verify_show_my_qr">show my qr</string>
+  <string name="verify_remove">remove verification</string>
+  <string name="verify_qr_unavailable">qr unavailable</string>
+  <string name="verify_camera_permission">camera permission is needed to scan qr codes</string>
+  <string name="verify_request_camera">enable camera</string>
+  <string name="verify_paste_label">paste verification url</string>
+  <string name="verify_validate">validate</string>
+  <string name="verify_scanned">verification requested</string>
+  <string name="security_verification_title">security verification</string>
+  <string name="fingerprint_their">their fingerprint</string>
+  <string name="fingerprint_yours">your fingerprint</string>
+  <string name="fingerprint_pending">handshake pending</string>
+  <string name="fingerprint_no_peer">open a private chat to view fingerprints</string>
+  <string name="fingerprint_status_verified">encrypted &amp; verified</string>
+  <string name="fingerprint_status_encrypted">encrypted</string>
+  <string name="fingerprint_status_handshaking">handshaking</string>
+  <string name="fingerprint_status_failed">handshake failed</string>
+  <string name="fingerprint_status_uninitialized">not encrypted</string>
+  <string name="fingerprint_verified_label">verified</string>
+  <string name="fingerprint_verified_message">you have verified this persons identity.</string>
+  <string name="fingerprint_not_verified_label">not verified</string>
+  <string name="fingerprint_not_verified_message_fmt">compare these fingerprints with %1$s using a secure channel.</string>
+  <string name="fingerprint_mark_verified">mark as verified</string>
+  <string name="fingerprint_start_handshake">start handshake</string>
+  <string name="fingerprint_copy">copy</string>
+  <string name="verify_mutual_match_title">Mutual verification</string>
+  <string name="verify_mutual_match_body">You and %1$s verified each other</string>
+  <string name="verify_mutual_system_message">mutual verification with %1$s</string>
+  <string name="verify_success_title">Verified</string>
+  <string name="verify_success_body">You verified %1$s</string>
+  <string name="verify_success_system_message">verified %1$s</string>
+    <string name="cd_open_about">აპის შესახებ გახსნა</string>
+  <string name="nearby_notes_reveal">აქ დატოვებული ჩანაწერების შემოწმება</string>
+  <string name="nearby_notes_one">აქ 1 ჩანაწერია დატოვებული — წასაკითხად შეეხეთ</string>
+  <string name="nearby_notes_many">აქ %d ჩანაწერია დატოვებული — წასაკითხად შეეხეთ</string>
+    <string name="about_language">ენა</string>
+    <string name="about_app_language">აპის ენა</string>
+    <string name="about_system_default">სისტემის ნაგულისხმევი</string>
+    <string name="about_select_language">ენის არჩევა</string>
 </resources>

@@ -1,15 +1,13 @@
 package com.bitchat.android.ui.media
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,63 +16,76 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.text.font.FontFamily
-import com.bitchat.android.mesh.BluetoothMeshService
+import com.bitchat.android.ui.theme.BitchatFontFamily
+import com.bitchat.android.mesh.MeshService
 import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.model.BitchatMessageType
 import androidx.compose.material3.ColorScheme
+import com.bitchat.android.core.ui.component.text.AnnotatedClickableText
+import com.bitchat.android.ui.theme.LocalBitchatPalette
+import com.bitchat.android.ui.isFromSelf
 import java.text.SimpleDateFormat
-import java.util.*
 
 @Composable
 fun ImageMessageItem(
     message: BitchatMessage,
     messages: List<BitchatMessage>,
     currentUserNickname: String,
-    meshService: BluetoothMeshService,
+    meshService: MeshService,
     colorScheme: ColorScheme,
     timeFormatter: SimpleDateFormat,
     onNicknameClick: ((String) -> Unit)?,
     onMessageLongPress: ((BitchatMessage) -> Unit)?,
     onCancelTransfer: ((BitchatMessage) -> Unit)?,
     onImageClick: ((String, List<String>, Int) -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showSender: Boolean = true,
+    bubbles: Boolean = false
 ) {
+    val palette = LocalBitchatPalette.current
     val path = message.content.trim()
-    Column(modifier = modifier.fillMaxWidth()) {
+    // Bubble mode aligns self-authored media to the end side, mirroring text bubbles; the
+    // corner on the speaker's side is tightened into the same subtle tail.
+    val isSelfInBubbles = bubbles && message.isFromSelf(currentUserNickname, meshService.myPeerID)
+    val imageShape = when {
+        !bubbles -> androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+        isSelfInBubbles -> androidx.compose.foundation.shape.RoundedCornerShape(10.dp, 10.dp, 3.dp, 10.dp)
+        else -> androidx.compose.foundation.shape.RoundedCornerShape(10.dp, 10.dp, 10.dp, 3.dp)
+    }
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = if (isSelfInBubbles) Alignment.End else Alignment.Start,
+    ) {
         val headerText = com.bitchat.android.ui.formatMessageHeaderAnnotatedString(
             message = message,
             currentUserNickname = currentUserNickname,
-            meshService = meshService,
-            colorScheme = colorScheme,
-            timeFormatter = timeFormatter
+            myPeerID = meshService.myPeerID,
+            palette = palette,
+            contentColor = colorScheme.onSurface,
+            timeFormatter = timeFormatter,
+            includeSender = showSender
         )
         val haptic = LocalHapticFeedback.current
-        var headerLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
-        Text(
+        AnnotatedClickableText(
             text = headerText,
-            fontFamily = FontFamily.Monospace,
-            color = colorScheme.onSurface,
-            modifier = Modifier.pointerInput(message.id) {
-                detectTapGestures(onTap = { pos ->
-                    val layout = headerLayout ?: return@detectTapGestures
-                    val offset = layout.getOffsetForPosition(pos)
-                    val ann = headerText.getStringAnnotations("nickname_click", offset, offset)
-                    if (ann.isNotEmpty() && onNicknameClick != null) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onNicknameClick.invoke(ann.first().item)
-                    }
-                }, onLongPress = { onMessageLongPress?.invoke(message) })
+            annotationTags = listOf("nickname_click"),
+            onAnnotationClick = { tag, item ->
+                if (tag == "nickname_click" && onNicknameClick != null) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onNicknameClick.invoke(item)
+                    true
+                } else {
+                    false
+                }
             },
-            onTextLayout = { headerLayout = it }
+            onLongPress = { onMessageLongPress?.invoke(message) },
+            fontFamily = BitchatFontFamily,
+            color = colorScheme.onSurface,
         )
 
         val context = LocalContext.current
@@ -93,7 +104,10 @@ fun ImageMessageItem(
                 is com.bitchat.android.model.DeliveryStatus.PartiallyDelivered -> if (st.total > 0) st.reached.toFloat() / st.total.toFloat() else 0f
                 else -> null
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isSelfInBubbles) Arrangement.End else Arrangement.Start
+            ) {
                 Box {
                     if (progressFraction != null && progressFraction < 1f && message.sender == currentUserNickname) {
                         // Cyberpunk block-reveal while sending
@@ -105,7 +119,7 @@ fun ImageMessageItem(
                             modifier = Modifier
                                 .widthIn(max = 300.dp)
                                 .aspectRatio(aspect)
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                                .clip(imageShape)
                                 .clickable {
                                     val currentIndex = imagePaths.indexOf(path)
                                     onImageClick?.invoke(path, imagePaths, currentIndex)
@@ -119,7 +133,7 @@ fun ImageMessageItem(
                             modifier = Modifier
                                 .widthIn(max = 300.dp)
                                 .aspectRatio(aspect)
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                                .clip(imageShape)
                                 .clickable {
                                     val currentIndex = imagePaths.indexOf(path)
                                     onImageClick?.invoke(path, imagePaths, currentIndex)
@@ -145,7 +159,7 @@ fun ImageMessageItem(
                 }
             }
         } else {
-            Text(text = stringResource(com.bitchat.android.R.string.image_unavailable), fontFamily = FontFamily.Monospace, color = Color.Gray)
+            Text(text = stringResource(com.bitchat.android.R.string.image_unavailable), fontFamily = BitchatFontFamily, color = Color.Gray)
         }
     }
 }

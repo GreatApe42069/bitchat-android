@@ -2,7 +2,6 @@ package com.bitchat.android.nostr
 
 import android.app.Application
 import android.util.Log
-import androidx.lifecycle.LiveData
 import com.bitchat.android.ui.ChatState
 import com.bitchat.android.ui.GeoPerson
 import java.util.Date
@@ -29,19 +28,37 @@ class GeohashRepository(
     // conversation key (e.g., "nostr_<pub16>") -> source geohash it belongs to
     private val conversationGeohash: MutableMap<String, String> = mutableMapOf()
 
+    @Synchronized
     fun setConversationGeohash(convKey: String, geohash: String) {
         if (geohash.isNotEmpty()) {
             conversationGeohash[convKey] = geohash
         }
     }
 
+    @Synchronized
     fun getConversationGeohash(convKey: String): String? = conversationGeohash[convKey]
 
+    @Synchronized
     fun findPubkeyByNickname(targetNickname: String): String? {
         return geoNicknames.entries.firstOrNull { (_, nickname) ->
             val base = nickname.split("#").firstOrNull() ?: nickname
             base == targetNickname
         }?.key
+    }
+
+    @Synchronized
+    fun findPubkeyByShortId(shortId: String): String? {
+        // First check cached nicknames (fastest)
+        var found = geoNicknames.keys.firstOrNull { it.startsWith(shortId, ignoreCase = true) }
+        if (found != null) return found
+
+        // If not found in nicknames (e.g. anon user), check all known participants across all geohashes
+        for (participants in geohashParticipants.values) {
+            found = participants.keys.firstOrNull { it.startsWith(shortId, ignoreCase = true) }
+            if (found != null) return found
+        }
+        
+        return null
     }
 
     // peerID alias -> nostr pubkey mapping for geohash DMs and temp aliases
@@ -53,6 +70,7 @@ class GeohashRepository(
     fun setCurrentGeohash(geo: String?) { currentGeohash = geo }
     fun getCurrentGeohash(): String? = currentGeohash
 
+    @Synchronized
     fun clearAll() {
         geohashParticipants.clear()
         geoNicknames.clear()
@@ -63,6 +81,7 @@ class GeohashRepository(
         currentGeohash = null
     }
 
+    @Synchronized
     fun cacheNickname(pubkeyHex: String, nickname: String) {
         val lower = pubkeyHex.lowercase()
         val previous = geoNicknames[lower]
@@ -72,8 +91,10 @@ class GeohashRepository(
         }
     }
 
+    @Synchronized
     fun getCachedNickname(pubkeyHex: String): String? = geoNicknames[pubkeyHex.lowercase()]
 
+    @Synchronized
     fun markTeleported(pubkeyHex: String) {
         val set = state.getTeleportedGeoValue().toMutableSet()
         val key = pubkeyHex.lowercase()
@@ -84,17 +105,29 @@ class GeohashRepository(
         }
     }
 
+    @Synchronized
     fun isPersonTeleported(pubkeyHex: String): Boolean {
         return state.getTeleportedGeoValue().contains(pubkeyHex.lowercase())
     }
 
+    @Synchronized
     fun updateParticipant(geohash: String, participantId: String, lastSeen: Date) {
         val participants = geohashParticipants.getOrPut(geohash) { mutableMapOf() }
-        participants[participantId] = lastSeen
+        // Cap to now: prevents future-timestamped events (clock skew / malicious created_at)
+        // from pinning lastSeen and blocking subsequent normal heartbeats.
+        // Also keeps max: relays send events newest-first, so subsequent older events for
+        // the same user must not overwrite a fresher lastSeen.
+        val now = Date()
+        val effective = if (lastSeen.after(now)) now else lastSeen
+        val existing = participants[participantId]
+        if (existing == null || effective.after(existing)) {
+            participants[participantId] = effective
+        }
         if (currentGeohash == geohash) refreshGeohashPeople()
         updateReactiveParticipantCounts()
     }
 
+    @Synchronized
     fun geohashParticipantCount(geohash: String): Int {
         val cutoff = Date(System.currentTimeMillis() - 5 * 60 * 1000)
         val participants = geohashParticipants[geohash] ?: return 0
@@ -108,11 +141,12 @@ class GeohashRepository(
         return participants.keys.count { !dataManager.isGeohashUserBlocked(it) }
     }
 
+    @Synchronized
     fun refreshGeohashPeople() {
         val geohash = currentGeohash
         if (geohash == null) {
             // Use postValue for thread safety - this can be called from background threads
-            state.postGeohashPeople(emptyList())
+            state.setGeohashPeople(emptyList())
             return
         }
         val cutoff = Date(System.currentTimeMillis() - 5 * 60 * 1000)
@@ -143,9 +177,10 @@ class GeohashRepository(
             )
         }.sortedByDescending { it.lastSeen }
         // Use postValue for thread safety - this can be called from background threads
-        state.postGeohashPeople(people)
+        state.setGeohashPeople(people)
     }
 
+    @Synchronized
     fun updateReactiveParticipantCounts() {
         val cutoff = Date(System.currentTimeMillis() - 5 * 60 * 1000)
         val counts = mutableMapOf<String, Int>()
@@ -155,15 +190,18 @@ class GeohashRepository(
             counts[gh] = active
         }
         // Use postValue for thread safety - this can be called from background threads  
-        state.postGeohashParticipantCounts(counts)
+        state.setGeohashParticipantCounts(counts)
     }
 
+    @Synchronized
     fun putNostrKeyMapping(tempKeyOrPeer: String, pubkeyHex: String) {
         nostrKeyMapping[tempKeyOrPeer] = pubkeyHex
     }
 
+    @Synchronized
     fun getNostrKeyMapping(): Map<String, String> = nostrKeyMapping.toMap()
 
+    @Synchronized
     fun displayNameForNostrPubkey(pubkeyHex: String): String {
         val suffix = pubkeyHex.takeLast(4)
         val lower = pubkeyHex.lowercase()
@@ -181,6 +219,7 @@ class GeohashRepository(
         return "$nick#$suffix"
     }
 
+    @Synchronized
     fun displayNameForNostrPubkeyUI(pubkeyHex: String): String {
         val lower = pubkeyHex.lowercase()
         val suffix = pubkeyHex.takeLast(4)
@@ -212,6 +251,7 @@ class GeohashRepository(
     /**
      * Get display name for any geohash (not just current one) for header titles
      */
+    @Synchronized
     fun displayNameForGeohashConversation(pubkeyHex: String, sourceGeohash: String): String {
         val lower = pubkeyHex.lowercase()
         val suffix = pubkeyHex.takeLast(4)

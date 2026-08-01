@@ -5,13 +5,14 @@ import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
 import android.util.Log
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 /**
@@ -46,11 +47,11 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
 
     private val membership = mutableSetOf<String>()
 
-    private val _bookmarks = MutableLiveData<List<String>>(emptyList())
-    val bookmarks: LiveData<List<String>> = _bookmarks
+    private val _bookmarks = MutableStateFlow<List<String>>(emptyList())
+    val bookmarks: StateFlow<List<String>> = _bookmarks.asStateFlow()
 
-    private val _bookmarkNames = MutableLiveData<Map<String, String>>(emptyMap())
-    val bookmarkNames: LiveData<Map<String, String>> = _bookmarkNames
+    private val _bookmarkNames = MutableStateFlow<Map<String, String>>(emptyMap())
+    val bookmarkNames: StateFlow<Map<String, String>> = _bookmarkNames.asStateFlow()
 
     // For throttling / preventing duplicate geocode lookups
     private val resolving = mutableSetOf<String>()
@@ -68,8 +69,8 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
         val gh = normalize(geohash)
         if (gh.isEmpty() || membership.contains(gh)) return
         membership.add(gh)
-        val updated = listOf(gh) + (_bookmarks.value ?: emptyList())
-        _bookmarks.postValue(updated)
+        val updated = listOf(gh) + (_bookmarks.value)
+        _bookmarks.value = updated
         persist(updated)
         // Resolve friendly name asynchronously
         resolveNameIfNeeded(gh)
@@ -79,12 +80,12 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
         val gh = normalize(geohash)
         if (!membership.contains(gh)) return
         membership.remove(gh)
-        val updated = (_bookmarks.value ?: emptyList()).filterNot { it == gh }
-        _bookmarks.postValue(updated)
+        val updated = (_bookmarks.value).filterNot { it == gh }
+        _bookmarks.value = updated
         // Remove stored name to avoid stale cache growth
-        val names = _bookmarkNames.value?.toMutableMap() ?: mutableMapOf()
+        val names = _bookmarkNames.value.toMutableMap()
         if (names.remove(gh) != null) {
-            _bookmarkNames.postValue(names)
+            _bookmarkNames.value = names
             persistNames(names)
         }
         persist(updated)
@@ -108,33 +109,33 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
                     }
                 }
                 membership.clear(); membership.addAll(seen)
-                _bookmarks.postValue(ordered)
+                _bookmarks.value = ordered
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load bookmarks: ${e.message}")
+            Log.e(TAG, "Failed to load bookmarks")
         }
         try {
             val namesJson = prefs.getString(NAMES_STORE_KEY, null)
             if (!namesJson.isNullOrEmpty()) {
                 val mapType = object : TypeToken<Map<String, String>>() {}.type
                 val dict = gson.fromJson<Map<String, String>>(namesJson, mapType)
-                _bookmarkNames.postValue(dict)
+                _bookmarkNames.value = dict
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load bookmark names: ${e.message}")
+            Log.e(TAG, "Failed to load bookmark names")
         }
     }
 
     private fun persist() {
         try {
-            val json = gson.toJson(_bookmarks.value ?: emptyList<String>())
+            val json = gson.toJson(_bookmarks.value)
             prefs.edit().putString(STORE_KEY, json).apply()
         } catch (_: Exception) {}
     }
 
     private fun persistNames() {
         try {
-            val json = gson.toJson(_bookmarkNames.value ?: emptyMap<String, String>())
+            val json = gson.toJson(_bookmarkNames.value)
             prefs.edit().putString(NAMES_STORE_KEY, json).apply()
         } catch (_: Exception) {}
     }
@@ -144,8 +145,8 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
     fun clearAll() {
         try {
             membership.clear()
-            _bookmarks.postValue(emptyList())
-            _bookmarkNames.postValue(emptyMap())
+            _bookmarks.value = emptyList()
+            _bookmarkNames.value = emptyMap()
             prefs.edit()
                 .remove(STORE_KEY)
                 .remove(NAMES_STORE_KEY)
@@ -154,7 +155,7 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
             resolving.clear()
             Log.i(TAG, "Cleared all geohash bookmarks and names")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear geohash bookmarks: ${e.message}")
+            Log.e(TAG, "Failed to clear geohash bookmarks")
         }
     }
 
@@ -166,12 +167,11 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
         if (gh.isEmpty()) return
         if (_bookmarkNames.value?.containsKey(gh) == true) return
         if (resolving.contains(gh)) return
-        if (!Geocoder.isPresent()) return
 
         resolving.add(gh)
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val geocoder = Geocoder(context, Locale.getDefault())
+                val geocoderProvider = GeocoderFactory.get(context)
                 val name: String? = if (gh.length <= 2) {
                     // Composite admin name from multiple points
                     val b = Geohash.decodeToBounds(gh)
@@ -185,9 +185,8 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
                     val admins = linkedSetOf<String>()
                     for (loc in points) {
                         try {
-                            @Suppress("DEPRECATION")
-                            val list = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
-                            val a = list?.firstOrNull()
+                            val list = geocoderProvider.getFromLocation(loc.latitude, loc.longitude, 1)
+                            val a = list.firstOrNull()
                             val admin = a?.adminArea?.takeIf { !it.isNullOrEmpty() }
                             val country = a?.countryName?.takeIf { !it.isNullOrEmpty() }
                             if (admin != null) admins.add(admin)
@@ -202,20 +201,19 @@ class GeohashBookmarksStore private constructor(private val context: Context) {
                     }
                 } else {
                     val center = Geohash.decodeToCenter(gh)
-                    @Suppress("DEPRECATION")
-                    val list = geocoder.getFromLocation(center.first, center.second, 1)
-                    val a = list?.firstOrNull()
+                    val list = geocoderProvider.getFromLocation(center.first, center.second, 1)
+                    val a = list.firstOrNull()
                     pickNameForLength(gh.length, a)
                 }
 
                 if (!name.isNullOrEmpty()) {
-                    val current = _bookmarkNames.value?.toMutableMap() ?: mutableMapOf()
+                    val current = _bookmarkNames.value.toMutableMap()
                     current[gh] = name
-                    _bookmarkNames.postValue(current)
+                    _bookmarkNames.value = current
                     persistNames(current)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Name resolution failed for #$gh: ${e.message}")
+                Log.w(TAG, "Bookmark name resolution failed")
             } finally {
                 resolving.remove(gh)
             }
